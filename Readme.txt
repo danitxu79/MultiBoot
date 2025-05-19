@@ -31,7 +31,7 @@ Este proyecto es una aplicación Python con interfaz gráfica (GUI) diseñada pa
 ### Instalación y Configuración
 1.  Clona este repositorio (o descarga los archivos):
     ```bash
-    git clone [https://github.com/danitxu79/MultiBoot.git](https://github.com/danitxu79/MultiBoot.git)
+    git clone https://github.com/danitxu79/MultiBoot.git
     cd MultiBoot
     ```
 
@@ -85,7 +85,7 @@ Installation and Setup
     Clone this repository (or download the files):
     Bash
 
-git clone [https://github.com/danitxu79/MultiBoot.git](https://github.com/danitxu79/MultiBoot.git)
+git clone https://github.com/danitxu79/MultiBoot.git
 cd MultiBoot
 
 Run the dependency installation script. This script will attempt to detect your distribution and install the necessary packages. You must run it with sudo:
