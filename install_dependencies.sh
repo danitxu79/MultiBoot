@@ -185,9 +185,9 @@ echo ""
 echo "---------------------------------------------------------------------"
 echo "Instalación de dependencias completada."
 echo "Ahora puedes intentar ejecutar la aplicación Python, por ejemplo:"
-echo "  python3 tu_script_multiboot.py"
+echo "  python3 Multiboot.py"
 echo "Recuerda que la aplicación Python también debe ejecutarse con sudo:"
-echo "  sudo python3 tu_script_multiboot.py"
+echo "  sudo python3 Multiboot.py"
 echo "---------------------------------------------------------------------"
 
 exit 0
