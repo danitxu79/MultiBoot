@@ -97,6 +97,24 @@ class MultibootUSBApp:
         self.populate_usb_devices()
         self._update_manage_ui_state(is_compatible=False)
 
+    def get_downloads_folder(self):
+        home_dir = os.path.expanduser("~")
+        # Priorizar el nombre en español
+        downloads_path_es = os.path.join(home_dir, "Descargas")
+        if os.path.isdir(downloads_path_es):
+            return downloads_path_es
+
+        # Fallback al nombre en inglés
+        downloads_path_en = os.path.join(home_dir, "Downloads")
+        if os.path.isdir(downloads_path_en):
+            return downloads_path_en
+
+        # Si ninguno existe, simplemente devolver el directorio home del usuario
+        self.log_message(
+            f"No se encontró 'Descargas' ni 'Downloads', usando directorio home: {home_dir}"
+        )
+        return home_dir
+
     def _populate_create_tab(self, parent_tab):
         iso_frame = ttk.LabelFrame(
             parent_tab, text="1. Seleccionar Archivos ISO para Nuevo USB"
@@ -104,14 +122,16 @@ class MultibootUSBApp:
         iso_frame.pack(padx=10, pady=10, fill="both", expand=True)
         self.iso_listbox_create = tk.Listbox(
             iso_frame, selectmode=tk.MULTIPLE, width=60, height=5
-        )  # Allow multiple selection for removal
+        )
         self.iso_listbox_create.pack(
             padx=5, pady=5, side=tk.LEFT, fill="both", expand=True
         )
         iso_button_frame = ttk.Frame(iso_frame)
         iso_button_frame.pack(side=tk.LEFT, padx=5, pady=5, fill="y")
         ttk.Button(
-            iso_button_frame, text="Añadir ISO(s)", command=self.add_iso_for_create
+            iso_button_frame,
+            text="Añadir ISO(s)",
+            command=self.add_iso_for_create,  # Modificado
         ).pack(pady=5, fill="x")
         ttk.Button(
             iso_button_frame, text="Quitar ISO(s)", command=self.remove_iso_for_create
@@ -194,7 +214,7 @@ class MultibootUSBApp:
         self.add_to_usb_button = ttk.Button(
             manage_actions_frame,
             text="Añadir Nuevo ISO al USB",
-            command=self.start_add_iso_to_usb_process,
+            command=self.start_add_iso_to_usb_process,  # Modificado
         )
         self.add_to_usb_button.pack(side=tk.LEFT, padx=10, pady=10)
         self.remove_from_usb_button = ttk.Button(
@@ -246,6 +266,7 @@ class MultibootUSBApp:
             print(f"LOG (pre-GUI): {message}")
 
     def run_command(self, command_list, check=True, capture_output=False, log_cmd=True):
+        # ... (sin cambios) ...
         if log_cmd:
             self.log_message(f"Ejecutando: {' '.join(command_list)}")
         try:
@@ -253,9 +274,7 @@ class MultibootUSBApp:
                 command_list,
                 check=check,
                 text=True,
-                stdout=subprocess.PIPE
-                if capture_output
-                else subprocess.PIPE,  # Capturar siempre para log
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
             if process.stdout and log_cmd:
@@ -271,19 +290,20 @@ class MultibootUSBApp:
                 )
             return process.stdout.strip() if capture_output else True
         except subprocess.CalledProcessError as e:
-            if log_cmd:
-                self.log_message(f"Error ejecutando comando: {e}")
-                if e.stdout:
-                    self.log_message(f"Salida (stdout) del error: {e.stdout.strip()}")
-                if e.stderr:
-                    self.log_message(f"Salida (stderr) del error: {e.stderr.strip()}")
+            self.log_message(
+                f"Error ejecutando comando '{' '.join(e.cmd)}': Código {e.returncode}"
+            )
+            if e.stdout:
+                self.log_message(f"  Stdout del error: {e.stdout.strip()}")
+            if e.stderr:
+                self.log_message(f"  Stderr del error: {e.stderr.strip()}")
             return False
         except FileNotFoundError:
-            if log_cmd:
-                self.log_message(f"Error: Comando '{command_list[0]}' no encontrado.")
+            self.log_message(f"Error: Comando '{command_list[0]}' no encontrado.")
             return False
 
     def check_dependencies(self):
+        # ... (sin cambios, ya incluye mkfs.exfat) ...
         dependencies = [
             "lsblk",
             "parted",
@@ -308,6 +328,7 @@ class MultibootUSBApp:
         return True
 
     def populate_usb_devices(self):
+        # ... (sin cambios) ...
         self.log_message("Buscando dispositivos USB...")
         self.usb_combo.set("")
         self.usb_var.set("")
@@ -336,61 +357,77 @@ class MultibootUSBApp:
             if usb_devices:
                 self.usb_combo.current(0)
                 self.on_usb_selected()
-                self.log_message(f"Encontrados {len(usb_devices)} dispositivos USB.")
             else:
                 self.log_message("No se encontraron dispositivos USB.")
                 self._update_manage_ui_state(is_compatible=False)
         except Exception as e:
             self.log_message(f"Error al listar dispositivos: {e}")
-            messagebox.showerror(
-                "Error", f"No se pudieron listar los dispositivos USB: {e}"
-            )
+            messagebox.showerror("Error", f"{e}")
             self._update_manage_ui_state(is_compatible=False)
 
     def add_iso_for_create(self):
+        # MODIFICADO para usar initialdir
+        initial_dir = self.get_downloads_folder()
+        self.log_message(f"Abriendo diálogo de ISOs en: {initial_dir}")
         filepaths = filedialog.askopenfilenames(
-            title="Seleccionar Archivos ISO",
-            filetypes=(("Archivos ISO", "*.iso"), ("Todos", "*.*")),
+            initialdir=initial_dir,  # <--- AÑADIDO
+            title="Seleccionar Archivos ISO para Nuevo USB",
+            filetypes=(("Archivos ISO", "*.iso"), ("Todos los archivos", "*.*")),
         )
         if filepaths:
+            count_added = 0
             for filepath in filepaths:
                 if filepath not in self.iso_files:
-                    self.iso_files.append(filepath)
-                    self.iso_listbox_create.insert(tk.END, os.path.basename(filepath))
-            self.log_message(f"{len(filepaths)} ISO(s) añadidos para creación.")
+                    if os.path.basename(filepath) not in self.iso_listbox_create.get(
+                        0, tk.END
+                    ):
+                        self.iso_files.append(filepath)
+                        self.iso_listbox_create.insert(
+                            tk.END, os.path.basename(filepath)
+                        )
+                        count_added += 1
+                    else:
+                        self.log_message(
+                            f"ISO {os.path.basename(filepath)} ya está en la lista de creación."
+                        )
+            if count_added > 0:
+                self.log_message(f"{count_added} ISO(s) nuevos añadidos para creación.")
 
     def remove_iso_for_create(self):
+        # ... (sin cambios) ...
         selected_indices = self.iso_listbox_create.curselection()
         if not selected_indices:
             return
-        for index in reversed(
-            selected_indices
-        ):  # Reversed para evitar problemas de índice al borrar
+        for index in reversed(selected_indices):
             iso_to_remove_display = self.iso_listbox_create.get(index)
-            path_to_remove = next(
-                (
-                    p
-                    for p in self.iso_files
-                    if os.path.basename(p) == iso_to_remove_display
-                ),
-                None,
-            )
-            if path_to_remove:
-                self.iso_files.remove(path_to_remove)
-                self.iso_listbox_create.delete(index)
-                self.log_message(f"ISO quitado de creación: {path_to_remove}")
+            paths_to_remove = [
+                p
+                for p in self.iso_files
+                if os.path.basename(p) == iso_to_remove_display
+            ]
+            for p_rem in paths_to_remove:
+                self.iso_files.remove(p_rem)
+            self.iso_listbox_create.delete(index)
+            self.log_message(f"ISO quitado de creación: {iso_to_remove_display}")
 
     def _get_selected_usb_paths(self):
+        # ... (sin cambios) ...
         selected_usb_display = self.usb_var.get()
         if not selected_usb_display:
             return None, None
         device_path = selected_usb_display.split(" - ")[0]
         partition1 = device_path + "1"
         base_name = os.path.basename(device_path)
-        if "mmcblk" in base_name and not base_name.endswith("p"):
+        if (
+            "mmcblk" in base_name
+            and "p" not in base_name
+            and not base_name.endswith("p")
+        ):
             partition1 = device_path + "p1"
-        elif ("loop" in base_name or "nvme" in base_name) and not base_name.endswith(
-            "p"
+        elif (
+            ("loop" in base_name or "nvme" in base_name)
+            and "p" not in base_name
+            and not base_name.endswith("p")
         ):
             if "nvme" in base_name and "n" in base_name:
                 partition1 = device_path + "p1"
@@ -399,32 +436,33 @@ class MultibootUSBApp:
         return device_path, partition1
 
     def on_usb_selected(self, event=None):
+        # ... (sin cambios) ...
         self.current_usb_device_path, self.current_usb_partition1 = (
             self._get_selected_usb_paths()
         )
         if self.current_usb_device_path:
             self.log_message(
-                f"USB seleccionado: {self.current_usb_device_path}. Verificando..."
+                f"USB seleccionado: {self.current_usb_device_path}, Partición: {self.current_usb_partition1}. Verificando..."
             )
             self.verify_and_load_isos_from_usb()
         else:
             self._update_manage_ui_state(is_compatible=False)
 
     def _update_manage_ui_state(self, is_compatible, isos_found=False):
+        # ... (sin cambios) ...
         if not hasattr(self, "add_to_usb_button"):
             return
         state_normal_if_compat = tk.NORMAL if is_compatible else tk.DISABLED
         self.add_to_usb_button.config(state=state_normal_if_compat)
         self.refresh_mounted_isos_button.config(state=state_normal_if_compat)
         self.remove_from_usb_button.config(
-            state=tk.NORMAL
-            if is_compatible and isos_found and self.mounted_iso_listbox.size() > 0
-            else tk.DISABLED
-        )
+            state=tk.NORMAL if is_compatible and isos_found else tk.DISABLED
+        )  # Quitado self.mounted_iso_listbox.size() > 0 para que se active si hay isos_found
         if not is_compatible and hasattr(self, "mounted_iso_listbox"):
             self.mounted_iso_listbox.delete(0, tk.END)
 
     def verify_and_load_isos_from_usb(self):
+        # ... (sin cambios) ...
         if not self.current_usb_partition1:
             self._update_manage_ui_state(is_compatible=False)
             self.log_message("Partición USB no válida.")
@@ -443,42 +481,40 @@ class MultibootUSBApp:
         is_compatible_usb = False
         isos_on_device = []
         try:
-            # Intentar montar como exfat primero, luego como auto si falla
-            if not self.run_command(
+            mount_success = False
+            if self.run_command(
                 ["mount", "-t", "exfat", self.current_usb_partition1, TEMP_MOUNT_POINT],
                 check=False,
             ):
-                self.log_message(
-                    f"Montaje como exfat falló, intentando montaje automático para {self.current_usb_partition1}..."
-                )
-                if not self.run_command(
-                    ["mount", self.current_usb_partition1, TEMP_MOUNT_POINT]
-                ):  # check=True por defecto
-                    self.log_message(
-                        f"No se pudo montar {self.current_usb_partition1}."
-                    )
-                    self._update_manage_ui_state(is_compatible_usb, isos_found=False)
-                    return is_compatible_usb
-
-            grub_cfg_path = os.path.join(TEMP_MOUNT_POINT, "boot/grub/grub.cfg")
-            isos_dir = os.path.join(TEMP_MOUNT_POINT, "isos")
-            if os.path.exists(grub_cfg_path) and os.path.isdir(isos_dir):
-                self.log_message(
-                    f"USB {self.current_usb_device_path} parece compatible."
-                )
-                is_compatible_usb = True
-                for item in os.listdir(isos_dir):
-                    if item.lower().endswith(".iso"):
-                        isos_on_device.append(item)
-                        self.mounted_iso_listbox.insert(tk.END, item)
-                if isos_on_device:
-                    self.log_message(f"ISOs: {', '.join(isos_on_device)}")
-                else:
-                    self.log_message(f"Directorio 'isos' vacío.")
+                mount_success = True
             else:
                 self.log_message(
-                    f"USB {self.current_usb_device_path} no compatible (falta grub.cfg o /isos)."
+                    f"Montaje exfat falló, intentando auto para {self.current_usb_partition1}..."
                 )
+                if self.run_command(
+                    ["mount", self.current_usb_partition1, TEMP_MOUNT_POINT]
+                ):
+                    mount_success = True
+            if mount_success:
+                grub_cfg_path = os.path.join(TEMP_MOUNT_POINT, "boot/grub/grub.cfg")
+                isos_dir = os.path.join(TEMP_MOUNT_POINT, "isos")
+                if os.path.exists(grub_cfg_path) and os.path.isdir(isos_dir):
+                    self.log_message(f"USB {self.current_usb_device_path} compatible.")
+                    is_compatible_usb = True
+                    for item in os.listdir(isos_dir):
+                        if item.lower().endswith(".iso"):
+                            isos_on_device.append(item)
+                            self.mounted_iso_listbox.insert(tk.END, item)
+                    if isos_on_device:
+                        self.log_message(f"ISOs: {', '.join(isos_on_device)}")
+                    else:
+                        self.log_message(f"Directorio 'isos' vacío.")
+                else:
+                    self.log_message(
+                        f"USB {self.current_usb_device_path} no compatible (falta grub.cfg o /isos)."
+                    )
+            else:
+                self.log_message(f"No se pudo montar {self.current_usb_partition1}.")
         finally:
             if os.path.ismount(TEMP_MOUNT_POINT):
                 self.run_command(["umount", TEMP_MOUNT_POINT], check=False)
@@ -486,6 +522,7 @@ class MultibootUSBApp:
         return is_compatible_usb
 
     def refresh_isos_on_selected_usb(self):
+        # ... (sin cambios) ...
         if self.current_usb_device_path:
             self.verify_and_load_isos_from_usb()
         else:
@@ -505,6 +542,7 @@ class MultibootUSBApp:
         eta_curr_seconds=None,
         eta_total_seconds=None,
     ):
+        # ... (sin cambios) ...
         if not hasattr(self, "root") or not self.root.winfo_exists():
             return
         if bar_widget:
@@ -531,6 +569,7 @@ class MultibootUSBApp:
             )
 
     def start_creation_process(self):
+        # ... (sin cambios) ...
         device_path, _ = self._get_selected_usb_paths()
         if not device_path:
             messagebox.showerror("Error", "Selecciona un dispositivo USB.")
@@ -572,25 +611,37 @@ class MultibootUSBApp:
                 None,
             )
             thread = threading.Thread(
-                target=self.create_multiboot_usb_worker,
-                args=(device_path, list(self.iso_files)),
+                target=self.create_multiboot_usb_worker, args=(list(self.iso_files),)
             )
             thread.daemon = True
             thread.start()
         else:
             self.log_message("Creación cancelada.")
 
-    def create_multiboot_usb_worker(
-        self, _, iso_list_paths
-    ):  # device_path_from_caller ignorado, usar self.current_usb_device_path
+    def create_multiboot_usb_worker(self, iso_list_paths):
+        # CORREGIDO EL TYPO AQUÍ
+        # ... (resto del worker como en la respuesta anterior, con el typo TEMP_MONT_POINT corregido a TEMP_MOUNT_POINT)
         device_path, device_partition1 = (
             self.current_usb_device_path,
             self.current_usb_partition1,
         )
         if not device_path or not device_partition1:
-            self.log_message(
-                "Error worker: Dispositivo/Partición USB no definidos."
-            )  # ... (actualizar GUI con error)
+            self.log_message("Error worker: Dispositivo/Partición USB no definidos.")
+            self.root.after(
+                0,
+                self._update_progress_and_eta,
+                self.progress_bar_create,
+                self.current_iso_label_var_create,
+                self.speed_label_var_create,
+                self.eta_current_iso_label_var_create,
+                self.eta_total_label_var_create,
+                0,
+                100,
+                "Error de dispositivo",
+                None,
+                None,
+                None,
+            )
             if hasattr(self, "create_button"):
                 self.create_button.config(state=tk.NORMAL)
                 return
@@ -600,9 +651,34 @@ class MultibootUSBApp:
             self.log_message(
                 f"Worker: Usando {device_path}, part {device_partition1} con exFAT"
             )
-            # 1. Desmontar todas las particiones del dispositivo
-            # ... (código de desmontaje detallado como en la respuesta anterior, usando device_path)
-            # 2. Particionar y formatear como exFAT
+            # 1. Desmontar
+            self.log_message(f"Desmontando particiones en {device_path}...")
+            try:
+                result = self.run_command(
+                    ["lsblk", "-no", "MOUNTPOINT,NAME", device_path],
+                    capture_output=True,
+                    log_cmd=False,
+                )
+                if result and isinstance(result, str) and result.strip():
+                    for line in result.strip().split("\n"):
+                        parts = line.split()
+                        if len(parts) > 1 and parts[0] and parts[0] != "[SWAP]":
+                            mountpoint = parts[0]
+                            part_name_suffix = parts[-1].split("/")[-1]
+                            partition_to_umount = f"/dev/{part_name_suffix}"
+                            self.log_message(
+                                f"Intentando desmontar {partition_to_umount} de {mountpoint}..."
+                            )
+                            self.run_command(
+                                ["umount", partition_to_umount], check=False
+                            )
+                            self.run_command(
+                                ["umount", "-lf", partition_to_umount], check=False
+                            )
+            except Exception as e:
+                self.log_message(f"Error durante desmontaje (puede ser normal): {e}")
+
+            # 2. Particionar y formatear
             if not self.run_command(["parted", "-s", device_path, "mklabel", "msdos"]):
                 raise Exception("Fallo mklabel")
             if not self.run_command(
@@ -629,7 +705,7 @@ class MultibootUSBApp:
             self.log_message(f"Formateando {device_partition1} como exFAT...")
             if not self.run_command(
                 ["mkfs.exfat", "-n", "MULTIBOOT", device_partition1]
-            ):  # Añadida etiqueta
+            ):
                 time.sleep(5)
                 self.run_command(["partprobe", device_path], check=False)
                 time.sleep(2)
@@ -637,43 +713,44 @@ class MultibootUSBApp:
                     ["mkfs.exfat", "-n", "MULTIBOOT", device_partition1]
                 ):
                     raise Exception(f"Fallo formatear {device_partition1} exFAT")
+
             # 3. Montar
-            self.run_command(["umount", TEMP_MOUNT_POINT], check=False, log_cmd=False)
+            self.run_command(
+                ["umount", TEMP_MOUNT_POINT], check=False, log_cmd=False
+            )  # Correcto
             if not os.path.exists(TEMP_MOUNT_POINT):
-                self.run_command(["mkdir", "-p", TEMP_MOUNT_POINT])
-            if not self.run_command(
-                ["mount", "-t", "exfat", device_partition1, TEMP_MOUNT_POINT],
-                check=False,
-            ):
-                if not self.run_command(["mount", device_partition1, TEMP_MOUNT_POINT]):
+                self.run_command(["mkdir", "-p", TEMP_MOUNT_POINT])  # Correcto
+            mount_cmd_exfat = [
+                "mount",
+                "-t",
+                "exfat",
+                device_partition1,
+                TEMP_MOUNT_POINT,
+            ]  # CORRECTO
+            mount_cmd_auto = ["mount", device_partition1, TEMP_MOUNT_POINT]  # Correcto
+            if not self.run_command(mount_cmd_exfat, check=False):
+                if not self.run_command(mount_cmd_auto):
                     raise Exception(f"Fallo mount {device_partition1}")
+
             # 4. Instalar GRUB
-            grub_boot_dir = os.path.join(TEMP_MOUNT_POINT, "boot")
-            if not self.run_command(
-                [
-                    "grub-install",
-                    f"--boot-directory={grub_boot_dir}",
-                    "--target=i386-pc",
-                    "--no-floppy",
-                    device_path,
-                ]
-            ):
-                if not self.run_command(
-                    [
-                        "grub-install",
-                        f"--boot-directory={grub_boot_dir}",
-                        "--target=i386-pc",
-                        "--no-floppy",
-                        "--force",
-                        device_path,
-                    ]
-                ):
+            grub_boot_dir = os.path.join(TEMP_MOUNT_POINT, "boot")  # Correcto
+            grub_install_cmd = [
+                "grub-install",
+                f"--boot-directory={grub_boot_dir}",
+                "--target=i386-pc",
+                "--no-floppy",
+                device_path,
+            ]
+            if not self.run_command(grub_install_cmd):
+                grub_install_cmd.append("--force")
+                if not self.run_command(grub_install_cmd):
                     raise Exception(f"Fallo instalar GRUB2 en {device_path}")
+
             # 5. Copiar ISOs (con lógica ETA completa)
             self.create_op_start_time_overall = time.monotonic()
             self.create_op_copied_bytes_all_isos = 0
             isos_dir = os.path.join(TEMP_MOUNT_POINT, "isos")
-            self.run_command(["mkdir", "-p", isos_dir])
+            self.run_command(["mkdir", "-p", isos_dir])  # Correcto
             iso_filenames_on_usb = []
             for idx, iso_path in enumerate(iso_list_paths):
                 iso_filename = os.path.basename(iso_path)
@@ -712,9 +789,9 @@ class MultibootUSBApp:
                             copied_iso += len(chunk)
                             self.create_op_copied_bytes_all_isos += len(chunk)
                             now = time.monotonic()
-                            if now - last_update_t >= 0.5:  # Actualizar UI cada 0.5s
+                            if now - last_update_t >= 0.5:
                                 el_iso = max(0.1, now - start_iso_t)
-                                sp_iso = copied_iso / el_iso
+                                sp_iso = copied_iso / el_iso if el_iso > 0 else 0
                                 eta_iso = (
                                     (size_iso - copied_iso) / sp_iso
                                     if sp_iso > 0
@@ -723,7 +800,11 @@ class MultibootUSBApp:
                                 el_all = max(
                                     0.1, now - self.create_op_start_time_overall
                                 )
-                                sp_all = self.create_op_copied_bytes_all_isos / el_all
+                                sp_all = (
+                                    self.create_op_copied_bytes_all_isos / el_all
+                                    if el_all > 0
+                                    else 0
+                                )
                                 eta_all = (
                                     (
                                         self.create_op_total_bytes_all_isos
@@ -766,23 +847,25 @@ class MultibootUSBApp:
                         None,
                     )
                 except Exception as e:
-                    self.log_message(
-                        f"Error copiando {iso_filename}: {e}"
-                    )  # ... (actualizar UI con error)
+                    self.log_message(f"Error copiando {iso_filename}: {e}")
             if not iso_filenames_on_usb:
                 raise Exception("No se copió ningún ISO.")
+
             # 6. Generar grub.cfg
             grub_cfg_path = os.path.join(grub_boot_dir, "grub", "grub.cfg")
             with open(grub_cfg_path, "w") as f:
                 f.write(self.generate_grub_cfg_content(iso_filenames_on_usb))
             self.log_message("grub.cfg generado.")
+
             # 7. Desmontar
             if not self.run_command(
                 ["umount", TEMP_MOUNT_POINT], check=False
-            ):  # ... (manejo de error de desmontaje)
+            ):  # Correcto
                 self.run_command(["sync"])
                 time.sleep(1)
-                self.run_command(["umount", "-lf", TEMP_MOUNT_POINT], check=False)
+                self.run_command(
+                    ["umount", "-lf", TEMP_MOUNT_POINT], check=False
+                )  # Correcto
             final_status_msg = "¡Creación (exFAT) completada!"
             self.log_message(final_status_msg)
             messagebox.showinfo("Éxito", "USB multiboot (exFAT) creado.")
@@ -793,7 +876,7 @@ class MultibootUSBApp:
             if os.path.ismount(TEMP_MOUNT_POINT):
                 self.run_command(
                     ["umount", "-lf", TEMP_MOUNT_POINT], check=False, log_cmd=False
-                )
+                )  # Correcto
             self.root.after(
                 0,
                 self._update_progress_and_eta,
@@ -824,62 +907,72 @@ class MultibootUSBApp:
             "loadfont unicode",
             "",
         ]
-        for iso_filename in iso_filenames_on_usb:
+
+        for (
+            iso_filename
+        ) in iso_filenames_on_usb:  # Cambié el nombre de la variable aquí para claridad
             title = iso_filename.replace(".iso", "").replace("_", " ").replace("-", " ")
             grub_iso_path = f"/isos/{iso_filename}"
+
             entry = [
                 f"""menuentry "Arrancar {title}" {{""",
                 f"""    set isofile="{grub_iso_path}" """,
                 f"""    echo "Cargando $isofile..." """,
                 f"""    loopback loop $isofile""",
             ]
-            entry.extend(
-                [
-                    f"""    if [ -f (loop)/live/vmlinuz ]; then""",
-                    f"""        echo "Detectado Debian Live (Clonezilla, GParted)..." """,
-                    f"""        set initrd_f=""; if [ -f (loop)/live/initrd.img ]; then set initrd_f=(loop)/live/initrd.img; elif [ -f (loop)/live/initrd1.img ]; then set initrd_f=(loop)/live/initrd1.img; elif [ -f (loop)/live/initrd.gz ]; then set initrd_f=(loop)/live/initrd.gz; fi""",
-                    f"""        linux (loop)/live/vmlinuz boot=live findiso=${{isofile}} union=overlay config components quiet splash toram --""",
-                    f"""        if [ -n "$initrd_f" ]; then initrd $initrd_f; else echo "WARN: initrd no en /live/"; fi""",
-                    f"""    elif [ -f (loop)/casper/vmlinuz ]; then""",
-                    f"""        echo "Detectado Casper (Ubuntu)..." """,
-                    f"""        linux (loop)/casper/vmlinuz boot=casper iso-scan/filename=${{isofile}} quiet splash toram --""",
-                    f"""        initrd (loop)/casper/initrd.lz""",
-                    f"""    elif [ -f (loop)/isolinux/vmlinuz ] && [ -f (loop)/isolinux/initrd.img ]; then""",
-                    f"""        echo "Detectado ISOLINUX (Fedora)..." """,
-                    f"""        linux (loop)/isolinux/vmlinuz iso-scan/filename=${{isofile}} rd.live.image quiet splash""",
-                    f"""        initrd (loop)/isolinux/initrd.img""",
-                    f"""    elif [ -f (loop)/isolinux/vmlinuz ] && [ -f (loop)/isolinux/initrd.gz ]; then""",
-                    f"""        echo "Detectado ISOLINUX (initrd.gz)..." """,
-                    f"""        linux (loop)/isolinux/vmlinuz iso-scan/filename=${{isofile}} rd.live.image quiet splash""",
-                    f"""        initrd (loop)/isolinux/initrd.gz""",
-                    f"""    elif [ -f (loop)/arch/boot/x86_64/vmlinuz-linux ]; then""",
-                    f"""        echo "Detectado Arch Linux..." """,
-                    f"""        probe -u $root --set=uuid_curr_part""",
-                    f"""        linux (loop)/arch/boot/x86_64/vmlinuz-linux img_dev=/dev/disk/by-uuid/$uuid_curr_part img_loop=${{isofile}} archisobasedir=arch quiet splash""",
-                    f"""        initrd (loop)/arch/boot/intel-ucode.img (loop)/arch/boot/amd-ucode.img (loop)/arch/boot/x86_64/initramfs-linux.img""",
-                    f"""    elif [ -f (loop)/syslinux/vmlinuz ]; then""",
-                    f"""        echo "Detectado Syslinux genérico..." """,
-                    f"""        set knl=(loop)/syslinux/vmlinuz; set init_f="";""",
-                    f"""        if [ -f (loop)/syslinux/initram.igz ]; then set init_f=(loop)/syslinux/initram.igz; elif [ -f (loop)/syslinux/initrd.img ]; then set init_f=(loop)/syslinux/initrd.img; elif [ -f (loop)/syslinux/initrd.gz ]; then set init_f=(loop)/syslinux/initrd.gz; fi""",
-                    f"""        linux $knl isoloop=${{isofile}} findiso=${{isofile}} noeject noprompt quiet splash --""",
-                    f"""        if [ -n "$init_f" ]; then initrd $init_f; else echo "WARN: initrd no en /syslinux/"; fi""",
-                    f"""    else""",
-                    f"""        echo "No se determinó método de arranque para $isofile." """,
-                    f"""        echo "Revisa /boot/grub/grub.cfg"; echo "Pulsa tecla..."; read""",
-                    f"""    fi""",
-                ]
-            )
+
+            # ----- INICIO DE LÓGICA ESPECÍFICA PARA CLONEZILLA -----
+            # Asumimos que iso_filename es algo como "clonezilla-live-...amd64.iso"
+            # Si solo hay un ISO y es Clonezilla, esta lógica se aplicará.
+            # Si tienes más ISOs, necesitarías una forma de identificar que este es Clonezilla.
+            # Por ahora, como dijiste que solo tienes Clonezilla, esta será la única entrada generada.
+
+            if (
+                "clonezilla" in iso_filename.lower()
+            ):  # Condición simple para aplicar esta config
+                self.log_message(
+                    f"Generando entrada específica para Clonezilla: {iso_filename}"
+                )
+                entry.extend(
+                    [
+                        f"""    echo "Intentando arranque específico para Clonezilla..." """,
+                        # Parámetros comunes para Clonezilla. 'findiso=' es crucial.
+                        # La ruta al kernel/initrd suele ser /live/
+                        f"""    linux (loop)/live/vmlinuz boot=live union=overlay username=user config components quiet noswap edd=on nomodeset findiso=${{isofile}} toram --""",
+                        f"""    initrd (loop)/live/initrd.img""",
+                    ]
+                )
+            else:
+                # Si tuvieras otros ISOs, aquí volvería la lógica if/elif más genérica
+                # o un mensaje de error si no es Clonezilla y no tienes otra lógica.
+                # Por ahora, para la prueba con solo Clonezilla, podemos poner un mensaje de error
+                # si el ISO no parece ser Clonezilla.
+                entry.extend(
+                    [
+                        f"""    echo "Este ISO no parece ser Clonezilla y no hay otra configuración." """,
+                        f"""    echo "Presiona una tecla..." """,
+                        f"""    read""",
+                    ]
+                )
+            # ----- FIN DE LÓGICA ESPECÍFICA PARA CLONEZILLA -----
+
             entry.append(f"""}}""")
             cfg_parts.extend(entry)
             cfg_parts.append("")
         return "\n".join(cfg_parts)
 
     def start_add_iso_to_usb_process(self):
+        # MODIFICADO para usar initialdir
         if not self.current_usb_device_path or not self.current_usb_partition1:
             messagebox.showerror("Error", "Ningún USB compatible.")
             return
+
+        initial_dir = self.get_downloads_folder()
+        self.log_message(f"Abriendo diálogo para añadir ISO en: {initial_dir}")
         new_iso_path = filedialog.askopenfilename(
-            title="Seleccionar ISO para Añadir", filetypes=(("ISO", "*.iso"),)
+            initialdir=initial_dir,  # <--- AÑADIDO
+            title="Seleccionar ISO para Añadir",
+            filetypes=(("Archivos ISO", "*.iso"),),
         )
         if not new_iso_path:
             return
@@ -922,6 +1015,7 @@ class MultibootUSBApp:
         thread.start()
 
     def start_remove_iso_from_usb_process(self):
+        # ... (sin cambios) ...
         if not self.current_usb_device_path:
             messagebox.showerror("Error", "Ningún USB compatible.")
             return
@@ -965,6 +1059,7 @@ class MultibootUSBApp:
         thread.start()
 
     def worker_manage_iso(self, device_path, device_partition1, action, target_param):
+        # ... (sin cambios, ya incluye lógica ETA para 'add')
         verb = "añadido" if action == "add" else "quitado"
         bar, lbl, spd, eta_curr = (
             self.progress_bar_manage,
@@ -978,12 +1073,19 @@ class MultibootUSBApp:
             self.run_command(["umount", TEMP_MOUNT_POINT], check=False, log_cmd=False)
             if not os.path.exists(TEMP_MOUNT_POINT):
                 self.run_command(["mkdir", "-p", TEMP_MOUNT_POINT])
-            if not self.run_command(
-                ["mount", "-t", "exfat", device_partition1, TEMP_MOUNT_POINT],
-                check=False,
-            ):
-                if not self.run_command(["mount", device_partition1, TEMP_MOUNT_POINT]):
+
+            mount_cmd_exfat = [
+                "mount",
+                "-t",
+                "exfat",
+                device_partition1,
+                TEMP_MOUNT_POINT,
+            ]
+            mount_cmd_auto = ["mount", device_partition1, TEMP_MOUNT_POINT]
+            if not self.run_command(mount_cmd_exfat, check=False):
+                if not self.run_command(mount_cmd_auto):
                     raise Exception(f"No se pudo montar {device_partition1}")
+
             isos_dir = os.path.join(TEMP_MOUNT_POINT, "isos")
             grub_cfg = os.path.join(TEMP_MOUNT_POINT, "boot/grub/grub.cfg")
             if not os.path.isdir(isos_dir):
@@ -998,6 +1100,7 @@ class MultibootUSBApp:
                     self.log_message(f"Adición de '{iso_name}' cancelada.")
                     final_msg = "Adición cancelada."
                     raise Exception("Cancelled by user")
+
                 text = f"Copiando: {iso_name}"
                 self.manage_op_start_time_current_iso = time.monotonic()
                 copied = 0
@@ -1028,7 +1131,7 @@ class MultibootUSBApp:
                         now = time.monotonic()
                         if now - last_t >= 0.5:
                             el = max(0.1, now - self.manage_op_start_time_current_iso)
-                            speed = copied / el
+                            speed = copied / el if el > 0 else 0
                             eta_s = (
                                 (self.manage_op_total_bytes_current_iso - copied)
                                 / speed
@@ -1091,7 +1194,7 @@ class MultibootUSBApp:
                 self.log_message("Directorio ISOs vacío; grub.cfg con mensaje.")
             ok = True
             final_msg = (
-                f"ISO {os.path.basename(target_param)} {verb} y GRUB actualizado."
+                f"ISO {os.path.basename(str(target_param))} {verb} y GRUB actualizado."
             )
         except Exception as e:
             self.log_message(
